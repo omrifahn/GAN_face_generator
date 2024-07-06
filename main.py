@@ -174,8 +174,7 @@ def train():
 
         print(f"Epoch [{epoch + 1}/{epochs}] D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
 
-        if (epoch + 1) % 5 == 0:
-            save_generated_images(epoch + 1, generator)
+        save_generated_images(epoch + 1, generator)
 
     print("Training complete. Check the generated images in your current directory.")
 
