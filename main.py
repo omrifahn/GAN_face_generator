@@ -2,28 +2,27 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
 
-# Generate real data: points from a circle
+# Generate real data: smooth color gradients
 def generate_real_data(n):
-    r = torch.sqrt(torch.rand(n))
-    theta = torch.rand(n) * 2 * torch.pi
-    x = r * torch.cos(theta)
-    y = r * torch.sin(theta)
-    return torch.stack([x, y], dim=1)
+    t = torch.linspace(0, 1, n).unsqueeze(1)
+    return torch.cat([t, 1-t, torch.zeros_like(t)], dim=1)
 
 # Generator Network
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(2, 16),
+            nn.Linear(1, 16),
             nn.ReLU(),
-            nn.Linear(16, 16),
+            nn.Linear(16, 32),
             nn.ReLU(),
-            nn.Linear(16, 2)
+            nn.Linear(32, 3),
+            nn.Sigmoid()
         )
 
     def forward(self, z):
@@ -34,9 +33,9 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(2, 16),
+            nn.Linear(3, 32),
             nn.ReLU(),
-            nn.Linear(16, 16),
+            nn.Linear(32, 16),
             nn.ReLU(),
             nn.Linear(16, 1),
             nn.Sigmoid()
@@ -55,13 +54,17 @@ optimizer_D = optim.Adam(discriminator.parameters(), lr=0.01)
 adversarial_loss = nn.BCELoss()
 
 # Training loop
-num_epochs = 1000
+num_epochs = 5000
 batch_size = 128
+save_interval = 100
+
+# Lists to store generated samples for animation
+generated_samples = []
 
 for epoch in range(num_epochs):
     # Generate real and fake data
     real_data = generate_real_data(batch_size)
-    z = torch.randn(batch_size, 2)
+    z = torch.rand(batch_size, 1)
     fake_data = generator(z)
 
     # Train Discriminator
@@ -78,28 +81,40 @@ for epoch in range(num_epochs):
     g_loss.backward()
     optimizer_G.step()
 
-    if (epoch + 1) % 100 == 0:
+    if (epoch + 1) % save_interval == 0:
         print(f'Epoch [{epoch+1}/{num_epochs}], D_loss: {d_loss.item():.4f}, G_loss: {g_loss.item():.4f}')
+        generated_samples.append(fake_data.detach().numpy())
 
-# Visualize results
-with torch.no_grad():
-    real_data = generate_real_data(1000)
-    z = torch.randn(1000, 2)
-    fake_data = generator(z)
+# Create animation
+fig, ax = plt.subplots(figsize=(10, 4))
 
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 2, 1)
-    plt.scatter(real_data[:, 0], real_data[:, 1], c='blue', alpha=0.5, label='Real')
-    plt.title('Real Data')
-    plt.legend()
+def animate(i):
+    ax.clear()
+    ax.imshow(generated_samples[i].reshape(1, -1, 3), aspect='auto')
+    ax.set_title(f'Epoch {(i+1)*save_interval}')
+    ax.axis('off')
 
-    plt.subplot(1, 2, 2)
-    plt.scatter(fake_data[:, 0], fake_data[:, 1], c='red', alpha=0.5, label='Fake')
-    plt.title('Generated Data')
-    plt.legend()
+anim = FuncAnimation(fig, animate, frames=len(generated_samples), interval=200, repeat_delay=1000)
+anim.save('color_gradient_gan.gif', writer='pillow', fps=5)
 
-    plt.tight_layout()
-    plt.savefig('gan_results.png')
-    plt.close()
+print("Training finished! Animation saved as 'color_gradient_gan.gif'")
 
-print("Training finished! Results saved as 'gan_results.png'")
+# Display final results
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+
+real_data = generate_real_data(batch_size)
+ax1.imshow(real_data.numpy().reshape(1, -1, 3), aspect='auto')
+ax1.set_title('Real Color Gradients')
+ax1.axis('off')
+
+z = torch.rand(batch_size, 1)
+fake_data = generator(z)
+ax2.imshow(fake_data.detach().numpy().reshape(1, -1, 3), aspect='auto')
+ax2.set_title('Generated Color Gradients')
+ax2.axis('off')
+
+plt.tight_layout()
+plt.savefig('color_gradient_comparison.png')
+plt.close()
+
+print("Comparison image saved as 'color_gradient_comparison.png'")
