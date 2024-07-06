@@ -1,138 +1,140 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+import numpy as np
 import time
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
 
-# Generate real data: mixture of Gaussians
-def generate_real_data(n):
-    return torch.from_numpy(np.random.multivariate_normal(
-        mean=[0, 0], cov=[[0.1, 0], [0, 0.1]], size=n
-    ).astype(np.float32))
+# Hyperparameters
+latent_dim = 100
+img_size = 28
+batch_size = 64
+epochs = 500
 
-# Generator Network
+
+# Generate simple "8"-like figures
+def generate_eight(size=28, noise=0.2):
+    img = np.zeros((size, size))
+    center = size // 2
+    radius = size // 4
+    t = np.linspace(0, 2 * np.pi, 100)
+    x = center + radius * np.sin(t)
+    y = center + radius / 2 * np.sin(2 * t)
+    x = x.astype(int)
+    y = y.astype(int)
+    img[y, x] = 1
+    img += np.random.randn(size, size) * noise
+    img = np.clip(img, 0, 1)
+    return img
+
+
+# Create a dataset of "8"s
+num_samples = 1000
+dataset = torch.tensor([generate_eight() for _ in range(num_samples)]).float().unsqueeze(1)
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+
+# Generator
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(2, 16),
-            nn.ReLU(),
-            nn.Linear(16, 32),
-            nn.ReLU(),
-            nn.Linear(32, 2)
+            nn.Linear(latent_dim, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, img_size * img_size),
+            nn.Tanh()
         )
 
     def forward(self, z):
-        return self.model(z)
+        img = self.model(z)
+        img = img.view(img.size(0), 1, img_size, img_size)
+        return img
 
-# Discriminator Network
+
+# Discriminator
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(2, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1),
+            nn.Linear(img_size * img_size, 512),
+            nn.LeakyReLU(0.2),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, 1),
             nn.Sigmoid()
         )
 
-    def forward(self, x):
-        return self.model(x)
+    def forward(self, img):
+        img_flat = img.view(img.size(0), -1)
+        validity = self.model(img_flat)
+        return validity
 
-# Initialize networks and optimizers
+
+# Initialize generator and discriminator
 generator = Generator()
 discriminator = Discriminator()
-optimizer_G = optim.Adam(generator.parameters(), lr=0.01)
-optimizer_D = optim.Adam(discriminator.parameters(), lr=0.01)
+
+# Optimizers
+optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
 # Loss function
 adversarial_loss = nn.BCELoss()
 
-# Training parameters
-n_epochs = 1000
-batch_size = 128
-sample_size = 1000
-
-# Prepare the plot
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.set_xlim(-2, 2)
-ax.set_ylim(-2, 2)
-scatter_real = ax.scatter([], [], c='blue', alpha=0.5, label='Real Data')
-scatter_fake = ax.scatter([], [], c='red', alpha=0.5, label='Generated Data')
-contour = ax.contourf(np.linspace(-2, 2, 100), np.linspace(-2, 2, 100),
-                      np.zeros((100, 100)), levels=[0, 0.5, 1],
-                      alpha=0.3, colors=['red', 'green'])
-ax.legend()
-plt.close()  # Prevent the empty figure from displaying
-
-# Training loop with animation
-def train(frame):
-    global last_print_time
-    # Generate real and fake data
-    real_data = generate_real_data(batch_size)
-    z = torch.randn(batch_size, 2)
-    fake_data = generator(z).detach()
-
-    # Train Discriminator
-    optimizer_D.zero_grad()
-    real_loss = adversarial_loss(discriminator(real_data), torch.ones(batch_size, 1))
-    fake_loss = adversarial_loss(discriminator(fake_data), torch.zeros(batch_size, 1))
-    d_loss = (real_loss + fake_loss) / 2
-    d_loss.backward()
-    optimizer_D.step()
-
-    # Train Generator
-    optimizer_G.zero_grad()
-    z = torch.randn(batch_size, 2)
-    fake_data = generator(z)
-    g_loss = adversarial_loss(discriminator(fake_data), torch.ones(batch_size, 1))
-    g_loss.backward()
-    optimizer_G.step()
-
-    # Print progress every second
-    current_time = time.time()
-    if current_time - last_print_time >= 1:
-        print(f"Epoch {frame+1}/{n_epochs}, D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
-        last_print_time = current_time
-
-    # Visualize results
-    if frame % 10 == 0:
-        with torch.no_grad():
-            # Sample points for visualization
-            x = np.linspace(-2, 2, 100)
-            y = np.linspace(-2, 2, 100)
-            X, Y = np.meshgrid(x, y)
-            Z = discriminator(torch.Tensor(np.column_stack([X.ravel(), Y.ravel()]))).reshape(X.shape).numpy()
-
-            # Update plot
-            ax.clear()
-            ax.contourf(X, Y, Z, levels=[0, 0.5, 1], alpha=0.3, colors=['red', 'green'])
-            ax.scatter(real_data[:sample_size, 0], real_data[:sample_size, 1], c='blue', alpha=0.5, label='Real Data')
-            fake_sample = generator(torch.randn(sample_size, 2)).detach().numpy()
-            ax.scatter(fake_sample[:, 0], fake_sample[:, 1], c='red', alpha=0.5, label='Generated Data')
-            ax.legend()
-            ax.set_xlim(-2, 2)
-            ax.set_ylim(-2, 2)
-            ax.set_title(f'Epoch {frame+1}')
-
-    return ax
-
-print("Starting GAN training...")
+# Training
 start_time = time.time()
-last_print_time = start_time
+for epoch in range(epochs):
+    for i, imgs in enumerate(dataloader):
+        # Adversarial ground truths
+        real = torch.ones(imgs.size(0), 1)
+        fake = torch.zeros(imgs.size(0), 1)
 
-# Create the animation
-anim = FuncAnimation(fig, train, frames=n_epochs, interval=20, repeat=False)
-anim.save('gan_training.gif', writer='pillow', fps=30)
+        # Train Generator
+        optimizer_G.zero_grad()
+        z = torch.randn(imgs.size(0), latent_dim)
+        gen_imgs = generator(z)
+        g_loss = adversarial_loss(discriminator(gen_imgs), real)
+        g_loss.backward()
+        optimizer_G.step()
+
+        # Train Discriminator
+        optimizer_D.zero_grad()
+        real_loss = adversarial_loss(discriminator(imgs), real)
+        fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
+        d_loss = (real_loss + fake_loss) / 2
+        d_loss.backward()
+        optimizer_D.step()
+
+    # Print progress
+    if (epoch + 1) % 50 == 0:
+        print(f"Epoch [{epoch + 1}/{epochs}] D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
+
+        # Generate and save images
+        with torch.no_grad():
+            gen_imgs = generator(torch.randn(25, latent_dim)).cpu()
+            fig, axs = plt.subplots(5, 5, figsize=(10, 10))
+            for ax, img in zip(axs.flat, gen_imgs):
+                ax.imshow(img.squeeze(), cmap='gray')
+                ax.axis('off')
+            plt.savefig(f"generated_8s_epoch_{epoch + 1}.png")
+            plt.close()
 
 end_time = time.time()
-total_time = end_time - start_time
-print(f"Training and animation complete. Total time: {total_time:.2f} seconds")
-print("Check 'gan_training.gif' in your current directory.")
+print(f"Training completed in {end_time - start_time:.2f} seconds")
+
+# Generate final results
+with torch.no_grad():
+    gen_imgs = generator(torch.randn(25, latent_dim)).cpu()
+    fig, axs = plt.subplots(5, 5, figsize=(10, 10))
+    for ax, img in zip(axs.flat, gen_imgs):
+        ax.imshow(img.squeeze(), cmap='gray')
+        ax.axis('off')
+    plt.savefig("final_generated_8s.png")
+    plt.close()
+
+print("Training complete. Check the generated images in your current directory.")
