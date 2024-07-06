@@ -1,111 +1,88 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader
+from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 import numpy as np
-import time
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
 
+# Check if CUDA is available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+
 # Hyperparameters
 latent_dim = 100
-img_size = 28
-batch_size = 64
-epochs = 200  # Increased epochs for more complex task
-num_classes = 10  # 0-9 digits
+image_size = 64
+batch_size = 128
+epochs = 50
 
+# Data preprocessing
+transform = transforms.Compose([
+    transforms.Resize(image_size),
+    transforms.CenterCrop(image_size),
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+])
 
-# Generate simple digit-like figures
-def generate_digit(digit, size=28, noise=0.2):
-    img = np.zeros((size, size))
-    center = size // 2
-    radius = size // 4
+# Load the CelebA dataset
+dataset = torchvision.datasets.CelebA(root='./data', split='train', download=True, transform=transform)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
 
-    if digit in [0, 6, 8, 9]:  # Digits with loops
-        t = np.linspace(0, 2 * np.pi, 100)
-        x = center + radius * np.sin(t)
-        y = center + radius * np.cos(t)
-        if digit == 6:
-            y = np.clip(y, center, size)
-        elif digit == 9:
-            y = np.clip(y, 0, center)
-        x, y = x.astype(int), y.astype(int)
-        img[y, x] = 1
-
-    if digit in [1, 4, 7]:  # Digits with vertical lines
-        img[:, center] = 1
-
-    if digit in [2, 3, 4, 5, 7]:  # Digits with horizontal lines
-        img[center, :] = 1
-
-    if digit in [2, 3, 5]:  # Digits with additional horizontal lines
-        img[center // 2, :] = 1
-        img[center + center // 2, :] = 1
-
-    img += np.random.randn(size, size) * noise
-    return np.clip(img, 0, 1)
-
-
-# Create a dataset of digits
-num_samples = 10000  # Increased sample size
-digits = np.random.randint(0, 10, num_samples)
-dataset = np.array([generate_digit(d) for d in digits])
-dataset = torch.tensor(dataset).float().unsqueeze(1)
-labels = torch.tensor(digits).long()
-dataset = torch.utils.data.TensorDataset(dataset, labels)
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-
-# Generator
+# Generator Network
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
-        self.label_emb = nn.Embedding(num_classes, num_classes)
-        self.model = nn.Sequential(
-            nn.Linear(latent_dim + num_classes, 256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 512),
-            nn.LeakyReLU(0.2),
-            nn.Linear(512, 1024),
-            nn.LeakyReLU(0.2),
-            nn.Linear(1024, img_size * img_size),
+        self.main = nn.Sequential(
+            nn.ConvTranspose2d(latent_dim, 512, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(512),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(512, 256, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(64, 3, 4, 2, 1, bias=False),
             nn.Tanh()
         )
 
-    def forward(self, z, labels):
-        z = torch.cat((self.label_emb(labels), z), -1)
-        img = self.model(z)
-        img = img.view(img.size(0), 1, img_size, img_size)
-        return img
+    def forward(self, input):
+        return self.main(input)
 
-
-# Discriminator
+# Discriminator Network
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.label_emb = nn.Embedding(num_classes, num_classes)
-        self.model = nn.Sequential(
-            nn.Linear(img_size * img_size + num_classes, 1024),
-            nn.LeakyReLU(0.2),
-            nn.Linear(1024, 512),
-            nn.LeakyReLU(0.2),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 1),
+        self.main = nn.Sequential(
+            nn.Conv2d(3, 64, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 512, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(512, 1, 4, 1, 0, bias=False),
             nn.Sigmoid()
         )
 
-    def forward(self, img, labels):
-        img_flat = img.view(img.size(0), -1)
-        x = torch.cat((img_flat, self.label_emb(labels)), -1)
-        validity = self.model(x)
-        return validity
+    def forward(self, input):
+        return self.main(input).view(-1, 1)
 
-
-# Initialize generator and discriminator
-generator = Generator()
-discriminator = Discriminator()
+# Initialize networks
+generator = Generator().to(device)
+discriminator = Discriminator().to(device)
 
 # Optimizers
 optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
@@ -114,55 +91,48 @@ optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.99
 # Loss function
 adversarial_loss = nn.BCELoss()
 
-# Training
-start_time = time.time()
-for epoch in range(epochs):
-    for i, (imgs, labels) in enumerate(dataloader):
-        batch_size = imgs.size(0)
+# Function to generate and save images
+def save_generated_images(epoch):
+    with torch.no_grad():
+        gen_imgs = generator(torch.randn(16, latent_dim, 1, 1).to(device)).cpu()
+        grid = make_grid(gen_imgs, nrow=4, normalize=True)
+        plt.figure(figsize=(10, 10))
+        plt.imshow(np.transpose(grid, (1, 2, 0)))
+        plt.axis('off')
+        plt.savefig(f"celeba_generated_epoch_{epoch}.png")
+        plt.close()
 
+# Training loop
+for epoch in range(epochs):
+    for i, (imgs, _) in enumerate(dataloader):
         # Adversarial ground truths
-        real = torch.ones(batch_size, 1)
-        fake = torch.zeros(batch_size, 1)
+        real = torch.ones(imgs.size(0), 1).to(device)
+        fake = torch.zeros(imgs.size(0), 1).to(device)
+
+        # Configure input
+        real_imgs = imgs.to(device)
 
         # Train Generator
         optimizer_G.zero_grad()
-        z = torch.randn(batch_size, latent_dim)
-        gen_labels = torch.randint(0, num_classes, (batch_size,))
-        gen_imgs = generator(z, gen_labels)
-        validity = discriminator(gen_imgs, gen_labels)
-        g_loss = adversarial_loss(validity, real)
+        z = torch.randn(imgs.size(0), latent_dim, 1, 1).to(device)
+        gen_imgs = generator(z)
+        g_loss = adversarial_loss(discriminator(gen_imgs), real)
         g_loss.backward()
         optimizer_G.step()
 
         # Train Discriminator
         optimizer_D.zero_grad()
-        real_loss = adversarial_loss(discriminator(imgs, labels), real)
-        fake_loss = adversarial_loss(discriminator(gen_imgs.detach(), gen_labels), fake)
+        real_loss = adversarial_loss(discriminator(real_imgs), real)
+        fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
         d_loss = (real_loss + fake_loss) / 2
         d_loss.backward()
         optimizer_D.step()
 
-    # Print progress every 10 epochs
-    if (epoch + 1) % 10 == 0:
-        print(f"Epoch [{epoch + 1}/{epochs}] D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
+        if i % 50 == 0:
+            print(f"Epoch [{epoch+1}/{epochs}] Batch [{i}/{len(dataloader)}] "
+                  f"D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
 
-        # Generate and save images
-        with torch.no_grad():
-            n_rows = 10
-            n_cols = 10
-            z = torch.randn(n_rows * n_cols, latent_dim)
-            labels = torch.tensor([[i] * n_cols for i in range(n_rows)]).flatten()
-            gen_imgs = generator(z, labels).cpu()
-
-            fig, axs = plt.subplots(n_rows, n_cols, figsize=(20, 20))
-            for ax, img, label in zip(axs.flatten(), gen_imgs, labels):
-                ax.imshow(img.squeeze(), cmap='gray')
-                ax.axis('off')
-                ax.set_title(f"Digit: {label.item()}")
-            plt.savefig(f"generated_digits_epoch_{epoch + 1}.png")
-            plt.close()
-
-end_time = time.time()
-print(f"Training completed in {end_time - start_time:.2f} seconds")
+    # Generate and save images for every epoch
+    save_generated_images(epoch + 1)
 
 print("Training complete. Check the generated images in your current directory.")
