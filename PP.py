@@ -35,7 +35,7 @@ def add_bullet_slide_with_notes(prs, layout, title, bullets, notes):
     return slide
 
 
-def create_cnn_presentation():
+def create_gan_presentation():
     prs = Presentation()
     title_slide_layout = prs.slide_layouts[0]
     bullet_slide_layout = prs.slide_layouts[1]
@@ -44,75 +44,97 @@ def create_cnn_presentation():
     slide = prs.slides.add_slide(title_slide_layout)
     title = slide.shapes.title
     subtitle = slide.placeholders[1]
-    title.text = "Convolutional Neural Networks (CNNs)"
-    subtitle.text = "A 20-Minute Introduction"
-    slide.notes_slide.notes_text_frame.text = "Welcome everyone to this seminar on Convolutional Neural Networks, or CNNs. We'll explore how CNNs have revolutionized image processing in AI. By the end, you'll understand the basics of CNNs and their importance in modern AI applications."
+    title.text = "Generative Adversarial Networks (GANs)"
+    subtitle.text = "An Introduction to Creative AI"
+    slide.notes_slide.notes_text_frame.text = "Welcome to this presentation on Generative Adversarial Networks, or GANs. We'll explore how these powerful models are pushing the boundaries of AI creativity."
 
     # Slide 2: Introduction
     add_bullet_slide_with_notes(prs, bullet_slide_layout, "Introduction", [
-        "Neural Networks in AI",
-        "CNNs: A Game-Changer in Image Processing"
+        "Brief overview of AI and machine learning",
+        "Introduce the concept of generative models"
     ],
-                                "Neural networks are a fundamental part of modern AI. CNNs, in particular, have revolutionized image processing tasks, making significant breakthroughs in computer vision applications.")
+                                "We'll start with a quick overview of AI and machine learning, focusing on how they've evolved to include generative models. These are AI systems that can create new data, rather than just analyze existing data.")
 
-    # Slide 3: What is a Convolution?
-    add_bullet_slide_with_notes(prs, bullet_slide_layout, "What is a Convolution?", [
-        "Mathematical operation",
-        "Sliding window over data",
-        "Feature extraction"
+    # Slide 3: What are GANs?
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "What are GANs?", [
+        "Basic definition and purpose",
+        "The 'adversarial' concept"
     ],
-                                "At the heart of CNNs is the convolution operation. Imagine a small window sliding over an image, performing calculations at each step. This process helps in extracting important features from the input data. In image processing, it can detect edges, textures, and other patterns.")
+                                "GANs are a type of generative model that consists of two neural networks competing against each other. The 'adversarial' in the name comes from this competition, which drives both networks to improve simultaneously.")
 
-    # Slide 4: Key Components of CNNs
-    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Key Components of CNNs", [
-        "1. Convolutional Layers",
-        "2. Pooling Layers",
-        "3. Fully Connected Layers"
+    # Slide 4: Architecture of GANs
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Architecture of GANs", [
+        "Generator network",
+        "Discriminator network",
+        "How they work together"
     ],
-                                "CNNs consist of three main types of layers: 1) Convolutional layers apply filters to detect features. 2) Pooling layers reduce the spatial dimensions of the data. 3) Fully connected layers make the final decision based on the extracted features. This unique architecture allows CNNs to efficiently process image data.")
+                                "The GAN architecture consists of two main parts: the Generator and the Discriminator. The Generator creates synthetic data from random noise, while the Discriminator tries to distinguish between real and fake data. They work together in a competitive process that improves both networks.")
 
-    # Slide 5: How CNNs Process Images
-    add_slide_with_notes(prs, bullet_slide_layout, "How CNNs Process Images",
-                         "[Diagram showing the flow of an image through CNN layers]",
-                         "Let's walk through how a CNN processes an image: 1) The image enters the network. 2) Convolutional layers detect features like edges and shapes. 3) Pooling layers summarize these features. 4) This process repeats, detecting increasingly complex features. 5) Finally, fully connected layers use these features for classification. This hierarchical learning is what makes CNNs so powerful for image analysis.")
-
-    # Slide 6: Advantages of CNNs
-    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Advantages of CNNs", [
-        "Parameter sharing",
-        "Spatial invariance",
-        "Hierarchical feature learning"
+    # Slide 5: Generator Network
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Generator Network", [
+        "Input: Random noise vector",
+        "Output: Synthetic data (e.g., images)",
+        "Typically uses transposed convolutional layers"
     ],
-                                "CNNs have several advantages over traditional neural networks: 1) Parameter sharing: The same filter is applied across the entire image, reducing the number of parameters. 2) Spatial invariance: CNNs can detect features regardless of their position in the image. 3) Hierarchical feature learning: Each layer builds upon the previous, learning more complex features. These properties make CNNs particularly suited for image-related tasks.")
+                                "The Generator takes random noise as input and produces synthetic data. In image generation tasks, it often uses transposed convolutional layers to upsample the input into a full-sized image.")
 
-    # Slide 7: Simple CNN Architecture
-    add_slide_with_notes(prs, bullet_slide_layout, "Simple CNN Architecture",
-                         "[Diagram of a basic CNN architecture]",
-                         "Let's break down a simple CNN architecture: 1) Input layer: Receives the raw image data. 2) Convolutional layers: Apply filters to detect features. 3) Activation functions (like ReLU): Introduce non-linearity. 4) Pooling layers: Reduce spatial dimensions and computational load. 5) Fully connected layers: Interpret the extracted features. 6) Output layer: Produces the final prediction or classification. This structure allows the network to progressively learn and make decisions based on image content.")
-
-    # Slide 8: Real-World Applications
-    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Real-World Applications", [
-        "Image Classification",
-        "Object Detection",
-        "Facial Recognition",
-        "Medical Image Analysis"
+    # Slide 6: Discriminator Network
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Discriminator Network", [
+        "Input: Real or generated data",
+        "Output: Probability of input being real",
+        "Usually uses convolutional layers"
     ],
-                                "CNNs have numerous real-world applications: 1) Image Classification: Identifying the content of images. 2) Object Detection: Locating and identifying multiple objects in an image. 3) Facial Recognition: Identifying or verifying a person from their face. 4) Medical Image Analysis: Detecting abnormalities in X-rays, MRIs, etc. These applications demonstrate the versatility and power of CNNs in solving complex visual tasks.")
+                                "The Discriminator takes either real data or data produced by the Generator as input. It outputs a probability indicating whether it thinks the input is real or fake. For image tasks, it typically uses convolutional layers to downsample the input.")
 
-    # Slide 9: Conclusion and Future Directions
-    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Conclusion and Future Directions", [
-        "Recap: CNNs revolutionize image processing",
-        "Ongoing research: Improved architectures and efficiency"
+    # Slide 7: Mathematical Framework
+    add_slide_with_notes(prs, bullet_slide_layout, "Mathematical Framework",
+                         "min_G max_D V(D, G) = E_x~p_data(x)[log D(x)] + E_z~p_z(z)[log(1 - D(G(z)))]",
+                         "This is the core objective function of GANs. G is the Generator, D is the Discriminator, x represents real data, z is random noise, p_data is the distribution of real data, and p_z is the distribution of noise. This function encapsulates the minimax game between G and D.")
+
+    # Slide 8: Breaking Down the Objective Function
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Breaking Down the Objective Function", [
+        "G: Generator",
+        "D: Discriminator",
+        "x: Real data",
+        "z: Random noise",
+        "p_data: Distribution of real data",
+        "p_z: Distribution of noise"
     ],
-                                "To recap, CNNs have revolutionized image processing in AI by: 1) Efficiently extracting hierarchical features from images. 2) Providing spatial invariance and parameter sharing. 3) Enabling a wide range of applications in computer vision. Research continues to improve CNN architectures, making them more efficient and capable. The future of CNNs is exciting, with potential applications in video analysis, 3D image processing, and more.")
+                                "Let's break down each component of the objective function. This will help us understand what each part represents and how they contribute to the overall training process.")
 
-    # Slide 10: Thank You
-    add_slide_with_notes(prs, bullet_slide_layout, "Thank You", "Questions?",
-                         "Thank you for your attention. I hope this introduction to CNNs has been informative. I'm happy to take any questions you might have about CNNs or their applications.")
+    # Slide 9: Training Process
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Training Process", [
+        "1. Generate fake samples using G",
+        "2. Train D on real and fake samples",
+        "3. Train G to fool D"
+    ],
+                                "The training process involves alternating between training the Discriminator and the Generator. First, we generate fake samples, then train the Discriminator on both real and fake data. Finally, we train the Generator to produce data that can fool the Discriminator.")
+
+    # Slide 10: Analogy - Counterfeiter and Detective
+    add_slide_with_notes(prs, bullet_slide_layout, "Training Analogy",
+                         "Counterfeiter (Generator) vs Detective (Discriminator)",
+                         "To better understand the GAN training process, we can think of it as a game between a counterfeiter and a detective. The counterfeiter (Generator) tries to create fake currency, while the detective (Discriminator) tries to distinguish between real and fake currency. As they compete, both improve their skills.")
+
+    # Slide 11: Applications of GANs
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Applications of GANs", [
+        "Image generation",
+        "Style transfer",
+        "Data augmentation for machine learning"
+    ],
+                                "GANs have a wide range of applications. They're used for generating realistic images, transferring styles between images, and creating synthetic data to augment machine learning datasets. These are just a few examples of their capabilities.")
+
+    # Slide 12: Conclusion and Future Prospects
+    add_bullet_slide_with_notes(prs, bullet_slide_layout, "Conclusion and Future Prospects", [
+        "GANs: Powerful tools for generative AI",
+        "Ongoing research and improvements",
+        "Potential future applications"
+    ],
+                                "In conclusion, GANs are powerful tools that have opened up new possibilities in generative AI. Research is ongoing to improve their stability and performance. The future looks bright, with potential applications in areas like drug discovery, virtual reality, and more.")
 
     # Save the presentation
-    prs.save('CNN_Seminar_Presentation.pptx')
+    prs.save('GAN_Lecture_Presentation.pptx')
 
 
 if __name__ == "__main__":
-    create_cnn_presentation()
-    print("Presentation created successfully as 'CNN_Seminar_Presentation.pptx'")
+    create_gan_presentation()
+    print("Presentation created successfully as 'GAN_Lecture_Presentation.pptx'")
