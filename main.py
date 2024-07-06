@@ -1,76 +1,105 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
-import torchvision.transforms as transforms
-from torchvision.utils import save_image
+import matplotlib.pyplot as plt
+
+# Set random seed for reproducibility
+torch.manual_seed(42)
+
+# Generate real data: points from a circle
+def generate_real_data(n):
+    r = torch.sqrt(torch.rand(n))
+    theta = torch.rand(n) * 2 * torch.pi
+    x = r * torch.cos(theta)
+    y = r * torch.sin(theta)
+    return torch.stack([x, y], dim=1)
 
 # Generator Network
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(100, 256),
+            nn.Linear(2, 16),
             nn.ReLU(),
-            nn.Linear(256, 512),
+            nn.Linear(16, 16),
             nn.ReLU(),
-            nn.Linear(512, 784),
-            nn.Tanh()
+            nn.Linear(16, 2)
         )
 
     def forward(self, z):
-        img = self.model(z)
-        img = img.view(img.size(0), 1, 28, 28)
-        return img
+        return self.model(z)
 
 # Discriminator Network
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(784, 512),
-            nn.LeakyReLU(0.2),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 1),
+            nn.Linear(2, 16),
+            nn.ReLU(),
+            nn.Linear(16, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
             nn.Sigmoid()
         )
 
-    def forward(self, img):
-        img_flat = img.view(img.size(0), -1)
-        validity = self.model(img_flat)
-        return validity
+    def forward(self, x):
+        return self.model(x)
 
 # Initialize networks and optimizers
 generator = Generator()
 discriminator = Discriminator()
-optimizer_G = optim.Adam(generator.parameters(), lr=0.0002)
-optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002)
+optimizer_G = optim.Adam(generator.parameters(), lr=0.01)
+optimizer_D = optim.Adam(discriminator.parameters(), lr=0.01)
 
 # Loss function
 adversarial_loss = nn.BCELoss()
 
-# Training loop (simplified)
-for epoch in range(200):
-    for i, (imgs, _) in enumerate(dataloader):
-        # Train Discriminator
-        optimizer_D.zero_grad()
-        real_loss = adversarial_loss(discriminator(imgs), torch.ones(imgs.size(0), 1))
-        z = torch.randn(imgs.size(0), 100)
-        fake_imgs = generator(z)
-        fake_loss = adversarial_loss(discriminator(fake_imgs.detach()), torch.zeros(imgs.size(0), 1))
-        d_loss = real_loss + fake_loss
-        d_loss.backward()
-        optimizer_D.step()
+# Training loop
+num_epochs = 1000
+batch_size = 128
 
-        # Train Generator
-        optimizer_G.zero_grad()
-        g_loss = adversarial_loss(discriminator(fake_imgs), torch.ones(imgs.size(0), 1))
-        g_loss.backward()
-        optimizer_G.step()
+for epoch in range(num_epochs):
+    # Generate real and fake data
+    real_data = generate_real_data(batch_size)
+    z = torch.randn(batch_size, 2)
+    fake_data = generator(z)
 
-    # Save generated images
-    if epoch % 10 == 0:
-        save_image(fake_imgs[:25], f"images/{epoch}.png", nrow=5, normalize=True)
+    # Train Discriminator
+    optimizer_D.zero_grad()
+    real_loss = adversarial_loss(discriminator(real_data), torch.ones(batch_size, 1))
+    fake_loss = adversarial_loss(discriminator(fake_data.detach()), torch.zeros(batch_size, 1))
+    d_loss = (real_loss + fake_loss) / 2
+    d_loss.backward()
+    optimizer_D.step()
 
-print("Training finished!")
+    # Train Generator
+    optimizer_G.zero_grad()
+    g_loss = adversarial_loss(discriminator(fake_data), torch.ones(batch_size, 1))
+    g_loss.backward()
+    optimizer_G.step()
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch+1}/{num_epochs}], D_loss: {d_loss.item():.4f}, G_loss: {g_loss.item():.4f}')
+
+# Visualize results
+with torch.no_grad():
+    real_data = generate_real_data(1000)
+    z = torch.randn(1000, 2)
+    fake_data = generator(z)
+
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.scatter(real_data[:, 0], real_data[:, 1], c='blue', alpha=0.5, label='Real')
+    plt.title('Real Data')
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.scatter(fake_data[:, 0], fake_data[:, 1], c='red', alpha=0.5, label='Fake')
+    plt.title('Generated Data')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig('gan_results.png')
+    plt.close()
+
+print("Training finished! Results saved as 'gan_results.png'")
