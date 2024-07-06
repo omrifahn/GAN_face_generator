@@ -4,6 +4,7 @@ import torch.optim as optim
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+import time
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
@@ -73,6 +74,7 @@ plt.close()  # Prevent the empty figure from displaying
 
 # Training loop with animation
 def train(frame):
+    global last_print_time
     # Generate real and fake data
     real_data = generate_real_data(batch_size)
     z = torch.randn(batch_size, 2)
@@ -93,6 +95,12 @@ def train(frame):
     g_loss = adversarial_loss(discriminator(fake_data), torch.ones(batch_size, 1))
     g_loss.backward()
     optimizer_G.step()
+
+    # Print progress every second
+    current_time = time.time()
+    if current_time - last_print_time >= 1:
+        print(f"Epoch {frame+1}/{n_epochs}, D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
+        last_print_time = current_time
 
     # Visualize results
     if frame % 10 == 0:
@@ -116,8 +124,15 @@ def train(frame):
 
     return ax
 
+print("Starting GAN training...")
+start_time = time.time()
+last_print_time = start_time
+
 # Create the animation
 anim = FuncAnimation(fig, train, frames=n_epochs, interval=20, repeat=False)
 anim.save('gan_training.gif', writer='pillow', fps=30)
 
-print("Training and animation complete. Check 'gan_training.gif' in your current directory.")
+end_time = time.time()
+total_time = end_time - start_time
+print(f"Training and animation complete. Total time: {total_time:.2f} seconds")
+print("Check 'gan_training.gif' in your current directory.")
