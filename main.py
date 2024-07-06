@@ -1,25 +1,31 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
+import os
+import zipfile
+import multiprocessing
+import random
 
 # Set random seed for reproducibility
 torch.manual_seed(42)
+random.seed(42)
 
 # Check if CUDA is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Hyperparameters
-latent_dim = 100
-image_size = 64
-batch_size = 128
+latent_dim = 64
+image_size = 32
+batch_size = 32
 epochs = 50
+n_samples = 1000
 
 # Data preprocessing
 transform = transforms.Compose([
@@ -29,19 +35,61 @@ transform = transforms.Compose([
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ])
 
-# Load the CelebA dataset
-dataset = torchvision.datasets.CelebA(root='./data', split='train', download=True, transform=transform)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
+
+# Custom CelebA dataset
+class CelebADataset(Dataset):
+    def __init__(self, root, transform=None, n_samples=None):
+        self.root = root
+        self.transform = transform
+
+        if not os.path.exists(os.path.join(root, 'img_align_celeba')):
+            print("Extracting images...")
+            with zipfile.ZipFile(os.path.join(root, 'img_align_celeba.zip'), 'r') as zip_ref:
+                zip_ref.extractall(root)
+
+        all_image_paths = [os.path.join(root, 'img_align_celeba', img) for img in
+                           os.listdir(os.path.join(root, 'img_align_celeba')) if img.endswith('.jpg')]
+
+        if n_samples is not None and n_samples < len(all_image_paths):
+            self.image_paths = random.sample(all_image_paths, n_samples)
+        else:
+            self.image_paths = all_image_paths
+
+        # Filter out unreadable images
+        self.image_paths = [path for path in self.image_paths if self.is_valid_image(path)]
+        print(f"Using {len(self.image_paths)} valid images for training.")
+
+    def is_valid_image(self, path):
+        try:
+            with Image.open(path) as img:
+                img.verify()
+            return True
+        except:
+            print(f"Skipping corrupted image: {path}")
+            return False
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        try:
+            image = Image.open(img_path).convert('RGB')
+            if self.transform:
+                image = self.transform(image)
+            return image
+        except Exception as e:
+            print(f"Error loading image {img_path}: {str(e)}")
+            # Return a random valid image instead
+            return self[random.randint(0, len(self) - 1)]
+
 
 # Generator Network
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.main = nn.Sequential(
-            nn.ConvTranspose2d(latent_dim, 512, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(512),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(512, 256, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(latent_dim, 256, 4, 1, 0, bias=False),
             nn.BatchNorm2d(256),
             nn.ReLU(True),
             nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
@@ -57,6 +105,7 @@ class Generator(nn.Module):
     def forward(self, input):
         return self.main(input)
 
+
 # Discriminator Network
 class Discriminator(nn.Module):
     def __init__(self):
@@ -70,69 +119,67 @@ class Discriminator(nn.Module):
             nn.Conv2d(128, 256, 4, 2, 1, bias=False),
             nn.BatchNorm2d(256),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(256, 512, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(512),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(512, 1, 4, 1, 0, bias=False),
+            nn.Conv2d(256, 1, 4, 1, 0, bias=False),
             nn.Sigmoid()
         )
 
     def forward(self, input):
         return self.main(input).view(-1, 1)
 
-# Initialize networks
-generator = Generator().to(device)
-discriminator = Discriminator().to(device)
-
-# Optimizers
-optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-
-# Loss function
-adversarial_loss = nn.BCELoss()
 
 # Function to generate and save images
-def save_generated_images(epoch):
+def save_generated_images(epoch, generator):
     with torch.no_grad():
         gen_imgs = generator(torch.randn(16, latent_dim, 1, 1).to(device)).cpu()
         grid = make_grid(gen_imgs, nrow=4, normalize=True)
-        plt.figure(figsize=(10, 10))
+        plt.figure(figsize=(8, 8))
         plt.imshow(np.transpose(grid, (1, 2, 0)))
         plt.axis('off')
         plt.savefig(f"celeba_generated_epoch_{epoch}.png")
         plt.close()
 
-# Training loop
-for epoch in range(epochs):
-    for i, (imgs, _) in enumerate(dataloader):
-        # Adversarial ground truths
-        real = torch.ones(imgs.size(0), 1).to(device)
-        fake = torch.zeros(imgs.size(0), 1).to(device)
 
-        # Configure input
-        real_imgs = imgs.to(device)
+def train():
+    dataset = CelebADataset(root='./data/celeba', transform=transform, n_samples=n_samples)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-        # Train Generator
-        optimizer_G.zero_grad()
-        z = torch.randn(imgs.size(0), latent_dim, 1, 1).to(device)
-        gen_imgs = generator(z)
-        g_loss = adversarial_loss(discriminator(gen_imgs), real)
-        g_loss.backward()
-        optimizer_G.step()
+    generator = Generator().to(device)
+    discriminator = Discriminator().to(device)
 
-        # Train Discriminator
-        optimizer_D.zero_grad()
-        real_loss = adversarial_loss(discriminator(real_imgs), real)
-        fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
-        d_loss = (real_loss + fake_loss) / 2
-        d_loss.backward()
-        optimizer_D.step()
+    optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+    optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
-        if i % 50 == 0:
-            print(f"Epoch [{epoch+1}/{epochs}] Batch [{i}/{len(dataloader)}] "
-                  f"D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
+    adversarial_loss = nn.BCELoss()
 
-    # Generate and save images for every epoch
-    save_generated_images(epoch + 1)
+    for epoch in range(epochs):
+        for i, imgs in enumerate(dataloader):
+            real = torch.ones(imgs.size(0), 1).to(device)
+            fake = torch.zeros(imgs.size(0), 1).to(device)
 
-print("Training complete. Check the generated images in your current directory.")
+            real_imgs = imgs.to(device)
+
+            optimizer_G.zero_grad()
+            z = torch.randn(imgs.size(0), latent_dim, 1, 1).to(device)
+            gen_imgs = generator(z)
+            g_loss = adversarial_loss(discriminator(gen_imgs), real)
+            g_loss.backward()
+            optimizer_G.step()
+
+            optimizer_D.zero_grad()
+            real_loss = adversarial_loss(discriminator(real_imgs), real)
+            fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
+            d_loss = (real_loss + fake_loss) / 2
+            d_loss.backward()
+            optimizer_D.step()
+
+        print(f"Epoch [{epoch + 1}/{epochs}] D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
+
+        if (epoch + 1) % 5 == 0:
+            save_generated_images(epoch + 1, generator)
+
+    print("Training complete. Check the generated images in your current directory.")
+
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    train()
