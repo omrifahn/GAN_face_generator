@@ -17,11 +17,13 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(1, 16),
-            nn.ReLU(),
-            nn.Linear(16, 32),
-            nn.ReLU(),
-            nn.Linear(32, 3),
+            nn.Linear(1, 64),
+            nn.LeakyReLU(0.2),
+            nn.Linear(64, 128),
+            nn.LeakyReLU(0.2),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(0.2),
+            nn.Linear(64, 3),
             nn.Sigmoid()
         )
 
@@ -33,11 +35,13 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(3, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1),
+            nn.Linear(3, 64),
+            nn.LeakyReLU(0.2),
+            nn.Linear(64, 128),
+            nn.LeakyReLU(0.2),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(0.2),
+            nn.Linear(64, 1),
             nn.Sigmoid()
         )
 
@@ -47,16 +51,16 @@ class Discriminator(nn.Module):
 # Initialize networks and optimizers
 generator = Generator()
 discriminator = Discriminator()
-optimizer_G = optim.Adam(generator.parameters(), lr=0.01)
-optimizer_D = optim.Adam(discriminator.parameters(), lr=0.01)
+optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
 # Loss function
 adversarial_loss = nn.BCELoss()
 
 # Training loop
-num_epochs = 5000
-batch_size = 128
-save_interval = 100
+num_epochs = 10000
+batch_size = 256
+save_interval = 500
 
 # Lists to store generated samples for animation
 generated_samples = []
