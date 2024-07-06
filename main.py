@@ -12,11 +12,11 @@ torch.manual_seed(42)
 latent_dim = 100
 img_size = 28
 batch_size = 64
-epochs = 500
+epochs = 100  # Reduced number of epochs
 
 
 # Generate simple "8"-like figures
-def generate_eight(size=28, noise=0.2):
+def generate_eight(size=28, noise=0.3):  # Increased noise
     img = np.zeros((size, size))
     center = size // 2
     radius = size // 4
@@ -33,7 +33,8 @@ def generate_eight(size=28, noise=0.2):
 
 # Create a dataset of "8"s
 num_samples = 1000
-dataset = torch.tensor([generate_eight() for _ in range(num_samples)]).float().unsqueeze(1)
+dataset = np.array([generate_eight() for _ in range(num_samples)])
+dataset = torch.tensor(dataset).float().unsqueeze(1)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
@@ -80,8 +81,8 @@ generator = Generator()
 discriminator = Discriminator()
 
 # Optimizers
-optimizer_G = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+optimizer_G = optim.Adam(generator.parameters(), lr=0.0001)  # Reduced learning rate
+optimizer_D = optim.Adam(discriminator.parameters(), lr=0.0001)  # Reduced learning rate
 
 # Loss function
 adversarial_loss = nn.BCELoss()
@@ -94,35 +95,39 @@ for epoch in range(epochs):
         real = torch.ones(imgs.size(0), 1)
         fake = torch.zeros(imgs.size(0), 1)
 
+        # Add some noise to the real images and labels
+        real_imgs = imgs + 0.1 * torch.randn_like(imgs)
+        real_labels = real - 0.1 * torch.rand_like(real)
+        fake_labels = fake + 0.1 * torch.rand_like(fake)
+
         # Train Generator
         optimizer_G.zero_grad()
         z = torch.randn(imgs.size(0), latent_dim)
         gen_imgs = generator(z)
-        g_loss = adversarial_loss(discriminator(gen_imgs), real)
+        g_loss = adversarial_loss(discriminator(gen_imgs), real_labels)
         g_loss.backward()
         optimizer_G.step()
 
         # Train Discriminator
         optimizer_D.zero_grad()
-        real_loss = adversarial_loss(discriminator(imgs), real)
-        fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
+        real_loss = adversarial_loss(discriminator(real_imgs), real_labels)
+        fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake_labels)
         d_loss = (real_loss + fake_loss) / 2
         d_loss.backward()
         optimizer_D.step()
 
-    # Print progress
-    if (epoch + 1) % 50 == 0:
-        print(f"Epoch [{epoch + 1}/{epochs}] D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
+    # Print progress and save images every epoch
+    print(f"Epoch [{epoch + 1}/{epochs}] D loss: {d_loss.item():.4f}, G loss: {g_loss.item():.4f}")
 
-        # Generate and save images
-        with torch.no_grad():
-            gen_imgs = generator(torch.randn(25, latent_dim)).cpu()
-            fig, axs = plt.subplots(5, 5, figsize=(10, 10))
-            for ax, img in zip(axs.flat, gen_imgs):
-                ax.imshow(img.squeeze(), cmap='gray')
-                ax.axis('off')
-            plt.savefig(f"generated_8s_epoch_{epoch + 1}.png")
-            plt.close()
+    # Generate and save images
+    with torch.no_grad():
+        gen_imgs = generator(torch.randn(25, latent_dim)).cpu()
+        fig, axs = plt.subplots(5, 5, figsize=(10, 10))
+        for ax, img in zip(axs.flat, gen_imgs):
+            ax.imshow(img.squeeze(), cmap='gray')
+            ax.axis('off')
+        plt.savefig(f"generated_8s_epoch_{epoch + 1}.png")
+        plt.close()
 
 end_time = time.time()
 print(f"Training completed in {end_time - start_time:.2f} seconds")
