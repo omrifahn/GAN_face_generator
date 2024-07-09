@@ -16,20 +16,22 @@ from datetime import datetime
 # Configuration
 CONFIG = {
     'random_seed': 42,
-    'latent_dim': 128,
+    'latent_dim': 100,
     'image_size': 128,
     'batch_size': 64,
     'epochs': 300,
     'n_samples': 3000,
-    'learning_rate': 0.0002,
+    'learning_rate_g': 0.0002,
+    'learning_rate_d': 0.0001,  # Slower learning rate for discriminator
     'beta1': 0.5,
     'beta2': 0.999,
     'data_root': './data/celeba',
     'output_dir': './output',
-    'generator_features': [1024, 512, 256, 128, 64],  # Adjusted for 128x128 images
-    'discriminator_features': [64, 128, 256, 512, 1024],  # Adjusted for 128x128 images
+    'generator_features': [1024, 512, 256, 128, 64],
+    'discriminator_features': [64, 128, 256, 512, 1024],
     'dropout': 0.3,
-    'use_spectral_norm': True
+    'use_spectral_norm': True,
+    'label_smoothing': 0.9
 }
 
 
@@ -246,21 +248,21 @@ def save_generated_images(epoch, generator, device, output_dir):
 
 def train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D, adversarial_loss, device):
     batch_size = real_imgs.size(0)
-    real = torch.ones(batch_size, 1).to(device)
-    fake = torch.zeros(batch_size, 1).to(device)
+    real_label = torch.full((batch_size, 1), CONFIG['label_smoothing'], device=device)
+    fake_label = torch.full((batch_size, 1), 0.0, device=device)
 
     # Train Generator
     optimizer_G.zero_grad()
-    z = torch.randn(batch_size, CONFIG['latent_dim']).to(device)
+    z = torch.randn(batch_size, CONFIG['latent_dim'], device=device)
     gen_imgs = generator(z)
-    g_loss = adversarial_loss(discriminator(gen_imgs), real)
+    g_loss = adversarial_loss(discriminator(gen_imgs), real_label)
     g_loss.backward()
     optimizer_G.step()
 
     # Train Discriminator
     optimizer_D.zero_grad()
-    real_loss = adversarial_loss(discriminator(real_imgs), real)
-    fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
+    real_loss = adversarial_loss(discriminator(real_imgs), real_label)
+    fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake_label)
     d_loss = (real_loss + fake_loss) / 2
     d_loss.backward()
     optimizer_D.step()
@@ -286,9 +288,9 @@ def train():
     generator.apply(weights_init_normal)
     discriminator.apply(weights_init_normal)
 
-    optimizer_G = optim.Adam(generator.parameters(), lr=CONFIG['learning_rate'],
+    optimizer_G = optim.Adam(generator.parameters(), lr=CONFIG['learning_rate_g'],
                              betas=(CONFIG['beta1'], CONFIG['beta2']))
-    optimizer_D = optim.Adam(discriminator.parameters(), lr=CONFIG['learning_rate'],
+    optimizer_D = optim.Adam(discriminator.parameters(), lr=CONFIG['learning_rate_d'],
                              betas=(CONFIG['beta1'], CONFIG['beta2']))
 
     adversarial_loss = nn.BCELoss()
