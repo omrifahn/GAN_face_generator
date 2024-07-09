@@ -26,8 +26,8 @@ CONFIG = {
     'beta2': 0.999,
     'data_root': './data/celeba',
     'output_dir': './output',
-    'features_multiplier': 64,
-    'n_layers': 5,
+    'generator_features': [1024, 512, 256, 128, 64, 32],  # From deep to shallow
+    'discriminator_features': [32, 64, 128, 256, 512, 1024],  # From shallow to deep
     'dropout': 0.3,
     'use_spectral_norm': True
 }
@@ -172,30 +172,30 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
 
-        self.init_size = CONFIG['image_size'] // (2 ** CONFIG['n_layers'])
+        self.init_size = CONFIG['image_size'] // (2 ** len(CONFIG['generator_features']))
         self.l1 = nn.Sequential(
             nn.Linear(CONFIG['latent_dim'],
-                      CONFIG['features_multiplier'] * (2 ** (CONFIG['n_layers'] - 1)) * self.init_size ** 2)
+                      CONFIG['generator_features'][0] * self.init_size ** 2)
         )
 
         self.conv_blocks = nn.ModuleList()
-        for i in range(CONFIG['n_layers'] - 1, 0, -1):
+        for i in range(len(CONFIG['generator_features']) - 1):
             self.conv_blocks.append(
-                gen_block(CONFIG['features_multiplier'] * (2 ** i),
-                          CONFIG['features_multiplier'] * (2 ** (i - 1)),
-                          dropout=(i > CONFIG['n_layers'] // 2))
+                gen_block(CONFIG['generator_features'][i],
+                          CONFIG['generator_features'][i + 1],
+                          dropout=(i < len(CONFIG['generator_features']) // 2))
             )
 
         self.conv_blocks.append(
             nn.Sequential(
-                nn.ConvTranspose2d(CONFIG['features_multiplier'], 3, 4, 2, 1, bias=False),
+                nn.ConvTranspose2d(CONFIG['generator_features'][-1], 3, 4, 2, 1, bias=False),
                 nn.Tanh()
             )
         )
 
     def forward(self, z):
         out = self.l1(z)
-        out = out.view(out.shape[0], -1, self.init_size, self.init_size)
+        out = out.view(out.shape[0], CONFIG['generator_features'][0], self.init_size, self.init_size)
         for conv_block in self.conv_blocks:
             out = conv_block(out)
         return out
@@ -207,12 +207,11 @@ class Discriminator(nn.Module):
 
         self.model = nn.ModuleList()
         in_features = 3
-        for i in range(CONFIG['n_layers']):
-            out_features = CONFIG['features_multiplier'] * (2 ** i)
+        for i, out_features in enumerate(CONFIG['discriminator_features']):
             self.model.append(
                 disc_block(in_features, out_features,
                            normalize=(i != 0),
-                           dropout=(i < CONFIG['n_layers'] // 2))
+                           dropout=(i < len(CONFIG['discriminator_features']) // 2))
             )
             in_features = out_features
 
@@ -294,6 +293,7 @@ def train():
 
     adversarial_loss = nn.BCELoss()
 
+    save_generated_images(0, generator, device, output_dir)
     for epoch in range(CONFIG['epochs']):
         epoch_d_loss = 0
         epoch_g_loss = 0
@@ -312,8 +312,7 @@ def train():
         avg_g_loss = epoch_g_loss / len(dataloader)
         print(f"Epoch [{epoch + 1}/{CONFIG['epochs']}] Avg D loss: {avg_d_loss:.4f}, Avg G loss: {avg_g_loss:.4f}")
 
-        if (epoch + 1) % 10 == 0:
-            save_generated_images(epoch + 1, generator, device, output_dir)
+        save_generated_images(epoch + 1, generator, device, output_dir)
 
     print(f"Training complete. Generated images saved in {output_dir}")
 
