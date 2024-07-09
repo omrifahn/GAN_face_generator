@@ -58,21 +58,66 @@ def get_transforms():
     ])
 
 
+def get_all_image_paths(root):
+    image_dir = os.path.join(root, 'img_align_celeba')
+    if not os.path.exists(image_dir):
+        print("Extracting images...")
+        with zipfile.ZipFile(os.path.join(root, 'img_align_celeba.zip'), 'r') as zip_ref:
+            zip_ref.extractall(root)
+
+    all_files = os.listdir(image_dir)
+    print(f"Total files in directory: {len(all_files)}")
+
+    image_paths = [os.path.join(image_dir, img) for img in all_files
+                   if img.lower().endswith(('.jpg', '.jpeg', '.png'))]
+    print(f"Total image files found: {len(image_paths)}")
+    return image_paths
+
+
+def is_valid_image(path):
+    try:
+        with Image.open(path) as img:
+            img.verify()
+            width, height = img.size
+            if width != 256 or height != 256:
+                print(f"Image with incorrect dimensions: {path} ({width}x{height})")
+                return False
+        return True
+    except Exception as e:
+        print(f"Invalid or corrupted image: {path}. Error: {str(e)}")
+        return False
+
+
+def filter_valid_images(image_paths):
+    valid_paths = []
+    for path in image_paths:
+        if is_valid_image(path):
+            valid_paths.append(path)
+        if len(valid_paths) % 100 == 0:
+            print(f"Processed {len(valid_paths)} valid images so far...")
+    return valid_paths
+
+
+def print_image_stats(image_paths):
+    dimensions = {}
+    for path in image_paths:
+        with Image.open(path) as img:
+            size = img.size
+            if size in dimensions:
+                dimensions[size] += 1
+            else:
+                dimensions[size] = 1
+    print("Image dimension statistics:")
+    for size, count in sorted(dimensions.items(), key=lambda x: x[1], reverse=True):
+        print(f"{size}: {count} images")
+
+
 class CelebADataset(Dataset):
     def __init__(self, root, transform=None, n_samples=None):
         self.root = root
         self.transform = transform
 
-        if not os.path.exists(os.path.join(root, 'img_align_celeba')):
-            print("Extracting images...")
-            with zipfile.ZipFile(os.path.join(root, 'img_align_celeba.zip'), 'r') as zip_ref:
-                zip_ref.extractall(root)
-
-        all_image_paths = [os.path.join(root, 'img_align_celeba', img) for img in
-                           os.listdir(os.path.join(root, 'img_align_celeba')) if
-                           img.endswith(('.jpg', '.jpeg', '.png'))]
-
-        print(f"Total images found: {len(all_image_paths)}")
+        all_image_paths = get_all_image_paths(root)
 
         if n_samples is not None and n_samples < len(all_image_paths):
             self.image_paths = random.sample(all_image_paths, n_samples)
@@ -81,37 +126,10 @@ class CelebADataset(Dataset):
 
         print(f"Images before validation: {len(self.image_paths)}")
 
-        self.image_paths = [path for path in self.image_paths if self.is_valid_image(path)]
+        self.image_paths = filter_valid_images(self.image_paths)
         print(f"Using {len(self.image_paths)} valid images for training.")
 
-        # Print statistics about image dimensions
-        self.print_image_stats()
-
-    def is_valid_image(self, path):
-        try:
-            with Image.open(path) as img:
-                img.verify()
-                width, height = img.size
-                if width != 256 or height != 256:
-                    print(f"Skipping image with incorrect dimensions: {path} ({width}x{height})")
-                    return False
-            return True
-        except Exception as e:
-            print(f"Skipping corrupted or invalid image: {path}. Error: {str(e)}")
-            return False
-
-    def print_image_stats(self):
-        dimensions = {}
-        for path in self.image_paths:
-            with Image.open(path) as img:
-                size = img.size
-                if size in dimensions:
-                    dimensions[size] += 1
-                else:
-                    dimensions[size] = 1
-        print("Image dimension statistics:")
-        for size, count in dimensions.items():
-            print(f"{size}: {count} images")
+        print_image_stats(self.image_paths)
 
     def __len__(self):
         return len(self.image_paths)
@@ -230,7 +248,7 @@ def train():
         epoch_d_loss = 0
         epoch_g_loss = 0
         for i, imgs in enumerate(dataloader):
-            print(f"Batch {i} size: {imgs.size()}")  # Add this line to print batch size
+            print(f"Batch {i} size: {imgs.size()}")  # Print batch size
             real_imgs = imgs.to(device)
             d_loss, g_loss = train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D,
                                          adversarial_loss, device)
