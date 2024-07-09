@@ -16,18 +16,20 @@ from datetime import datetime
 # Configuration
 CONFIG = {
     'random_seed': 42,
-    'latent_dim': 64,
+    'latent_dim': 100,
     'image_size': 128,
-    'batch_size': 32,
-    'epochs': 100,
+    'batch_size': 64,
+    'epochs': 200,
     'n_samples': 3000,
     'learning_rate': 0.0002,
     'beta1': 0.5,
     'beta2': 0.999,
     'data_root': './data/celeba',
     'output_dir': './output',
-    'gen_features': [512, 256, 128, 64, 32],
-    'disc_features': [32, 64, 128, 256, 512]
+    'features_multiplier': 64,
+    'n_layers': 5,
+    'dropout': 0.3,
+    'use_spectral_norm': True
 }
 
 
@@ -144,19 +146,25 @@ class CelebADataset(Dataset):
             return self[random.randint(0, len(self) - 1)]
 
 
-def gen_block(in_feat, out_feat, normalize=True):
+def gen_block(in_feat, out_feat, normalize=True, dropout=False):
     layers = [nn.ConvTranspose2d(in_feat, out_feat, 4, 2, 1, bias=False)]
     if normalize:
         layers.append(nn.BatchNorm2d(out_feat))
     layers.append(nn.ReLU(True))
+    if dropout:
+        layers.append(nn.Dropout(CONFIG['dropout']))
     return nn.Sequential(*layers)
 
 
-def disc_block(in_feat, out_feat, normalize=True):
+def disc_block(in_feat, out_feat, normalize=True, dropout=False):
     layers = [nn.Conv2d(in_feat, out_feat, 4, 2, 1, bias=False)]
+    if CONFIG['use_spectral_norm']:
+        layers[0] = nn.utils.spectral_norm(layers[0])
     if normalize:
         layers.append(nn.BatchNorm2d(out_feat))
     layers.append(nn.LeakyReLU(0.2, inplace=True))
+    if dropout:
+        layers.append(nn.Dropout(CONFIG['dropout']))
     return nn.Sequential(*layers)
 
 
@@ -164,40 +172,66 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
 
-        self.init_size = CONFIG['image_size'] // 32
-        self.l1 = nn.Sequential(nn.Linear(CONFIG['latent_dim'],
-                                          CONFIG['gen_features'][0] * self.init_size ** 2))
+        self.init_size = CONFIG['image_size'] // (2 ** CONFIG['n_layers'])
+        self.l1 = nn.Sequential(
+            nn.Linear(CONFIG['latent_dim'],
+                      CONFIG['features_multiplier'] * (2 ** (CONFIG['n_layers'] - 1)) * self.init_size ** 2)
+        )
 
-        self.conv_blocks = nn.Sequential(
-            *[gen_block(CONFIG['gen_features'][i], CONFIG['gen_features'][i + 1])
-              for i in range(len(CONFIG['gen_features']) - 1)],
-            nn.ConvTranspose2d(CONFIG['gen_features'][-1], 3, 4, 2, 1, bias=False),
-            nn.Tanh()
+        self.conv_blocks = nn.ModuleList()
+        for i in range(CONFIG['n_layers'] - 1, 0, -1):
+            self.conv_blocks.append(
+                gen_block(CONFIG['features_multiplier'] * (2 ** i),
+                          CONFIG['features_multiplier'] * (2 ** (i - 1)),
+                          dropout=(i > CONFIG['n_layers'] // 2))
+            )
+
+        self.conv_blocks.append(
+            nn.Sequential(
+                nn.ConvTranspose2d(CONFIG['features_multiplier'], 3, 4, 2, 1, bias=False),
+                nn.Tanh()
+            )
         )
 
     def forward(self, z):
         out = self.l1(z)
-        out = out.view(out.shape[0], CONFIG['gen_features'][0], self.init_size, self.init_size)
-        img = self.conv_blocks(out)
-        return img
+        out = out.view(out.shape[0], -1, self.init_size, self.init_size)
+        for conv_block in self.conv_blocks:
+            out = conv_block(out)
+        return out
 
 
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
 
-        self.model = nn.Sequential(
-            *[disc_block(3 if i == 0 else CONFIG['disc_features'][i - 1],
-                         CONFIG['disc_features'][i],
-                         normalize=i != 0)
-              for i in range(len(CONFIG['disc_features']))],
-            nn.Conv2d(CONFIG['disc_features'][-1], 1, 4, 1, 0, bias=False),
-            nn.Sigmoid()
-        )
+        self.model = nn.ModuleList()
+        in_features = 3
+        for i in range(CONFIG['n_layers']):
+            out_features = CONFIG['features_multiplier'] * (2 ** i)
+            self.model.append(
+                disc_block(in_features, out_features,
+                           normalize=(i != 0),
+                           dropout=(i < CONFIG['n_layers'] // 2))
+            )
+            in_features = out_features
+
+        self.model.append(nn.Conv2d(in_features, 1, 4, 1, 0, bias=False))
+        self.model.append(nn.Sigmoid())
 
     def forward(self, img):
-        validity = self.model(img)
-        return validity.view(-1, 1)
+        for layer in self.model:
+            img = layer(img)
+        return img.view(-1, 1)
+
+
+def weights_init_normal(m):
+    classname = m.__class__.__name__
+    if classname.find("Conv") != -1:
+        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find("BatchNorm2d") != -1:
+        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+        torch.nn.init.constant_(m.bias.data, 0.0)
 
 
 def save_generated_images(epoch, generator, device, output_dir):
@@ -250,6 +284,9 @@ def train():
     generator = Generator().to(device)
     discriminator = Discriminator().to(device)
 
+    generator.apply(weights_init_normal)
+    discriminator.apply(weights_init_normal)
+
     optimizer_G = optim.Adam(generator.parameters(), lr=CONFIG['learning_rate'],
                              betas=(CONFIG['beta1'], CONFIG['beta2']))
     optimizer_D = optim.Adam(discriminator.parameters(), lr=CONFIG['learning_rate'],
@@ -257,12 +294,10 @@ def train():
 
     adversarial_loss = nn.BCELoss()
 
-    save_generated_images(0, generator, device, output_dir)
     for epoch in range(CONFIG['epochs']):
         epoch_d_loss = 0
         epoch_g_loss = 0
         for i, imgs in enumerate(dataloader):
-            print(f"Batch {i} size: {imgs.size()}")  # Print batch size
             real_imgs = imgs.to(device)
             d_loss, g_loss = train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D,
                                          adversarial_loss, device)
@@ -277,7 +312,8 @@ def train():
         avg_g_loss = epoch_g_loss / len(dataloader)
         print(f"Epoch [{epoch + 1}/{CONFIG['epochs']}] Avg D loss: {avg_d_loss:.4f}, Avg G loss: {avg_g_loss:.4f}")
 
-        save_generated_images(epoch + 1, generator, device, output_dir)
+        if (epoch + 1) % 10 == 0:
+            save_generated_images(epoch + 1, generator, device, output_dir)
 
     print(f"Training complete. Generated images saved in {output_dir}")
 
