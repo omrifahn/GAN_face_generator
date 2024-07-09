@@ -17,15 +17,17 @@ from datetime import datetime
 CONFIG = {
     'random_seed': 42,
     'latent_dim': 64,
-    'image_size': 32,
-    'batch_size': 8,
+    'image_size': 128,
+    'batch_size': 32,
     'epochs': 100,
     'n_samples': 3000,
     'learning_rate': 0.0002,
     'beta1': 0.5,
     'beta2': 0.999,
     'data_root': './data/celeba',
-    'output_dir': './output'
+    'output_dir': './output',
+    'gen_features': [512, 256, 128, 64, 32],
+    'disc_features': [32, 64, 128, 256, 512]
 }
 
 
@@ -78,11 +80,7 @@ def is_valid_image(path):
     try:
         with Image.open(path) as img:
             img.verify()
-            width, height = img.size
-            if width != 256 or height != 256:
-                print(f"Image with incorrect dimensions: {path} ({width}x{height})")
-                return False
-        return True
+            return True
     except Exception as e:
         print(f"Invalid or corrupted image: {path}. Error: {str(e)}")
         return False
@@ -146,50 +144,65 @@ class CelebADataset(Dataset):
             return self[random.randint(0, len(self) - 1)]
 
 
+def gen_block(in_feat, out_feat, normalize=True):
+    layers = [nn.ConvTranspose2d(in_feat, out_feat, 4, 2, 1, bias=False)]
+    if normalize:
+        layers.append(nn.BatchNorm2d(out_feat))
+    layers.append(nn.ReLU(True))
+    return nn.Sequential(*layers)
+
+
+def disc_block(in_feat, out_feat, normalize=True):
+    layers = [nn.Conv2d(in_feat, out_feat, 4, 2, 1, bias=False)]
+    if normalize:
+        layers.append(nn.BatchNorm2d(out_feat))
+    layers.append(nn.LeakyReLU(0.2, inplace=True))
+    return nn.Sequential(*layers)
+
+
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
-        self.main = nn.Sequential(
-            nn.ConvTranspose2d(CONFIG['latent_dim'], 256, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(256),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(64, 3, 4, 2, 1, bias=False),
+
+        self.init_size = CONFIG['image_size'] // 32
+        self.l1 = nn.Sequential(nn.Linear(CONFIG['latent_dim'],
+                                          CONFIG['gen_features'][0] * self.init_size ** 2))
+
+        self.conv_blocks = nn.Sequential(
+            *[gen_block(CONFIG['gen_features'][i], CONFIG['gen_features'][i + 1])
+              for i in range(len(CONFIG['gen_features']) - 1)],
+            nn.ConvTranspose2d(CONFIG['gen_features'][-1], 3, 4, 2, 1, bias=False),
             nn.Tanh()
         )
 
-    def forward(self, input):
-        return self.main(input)
+    def forward(self, z):
+        out = self.l1(z)
+        out = out.view(out.shape[0], CONFIG['gen_features'][0], self.init_size, self.init_size)
+        img = self.conv_blocks(out)
+        return img
 
 
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
-        self.main = nn.Sequential(
-            nn.Conv2d(3, 64, 4, 2, 1, bias=False),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(64, 128, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(128, 256, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(256, 1, 4, 1, 0, bias=False),
+
+        self.model = nn.Sequential(
+            *[disc_block(3 if i == 0 else CONFIG['disc_features'][i - 1],
+                         CONFIG['disc_features'][i],
+                         normalize=i != 0)
+              for i in range(len(CONFIG['disc_features']))],
+            nn.Conv2d(CONFIG['disc_features'][-1], 1, 4, 1, 0, bias=False),
             nn.Sigmoid()
         )
 
-    def forward(self, input):
-        return self.main(input).view(-1, 1)
+    def forward(self, img):
+        validity = self.model(img)
+        return validity.view(-1, 1)
 
 
 def save_generated_images(epoch, generator, device, output_dir):
     with torch.no_grad():
-        gen_imgs = generator(torch.randn(16, CONFIG['latent_dim'], 1, 1).to(device)).cpu()
+        gen_imgs = generator(torch.randn(16, CONFIG['latent_dim']).to(device)).cpu()
         grid = make_grid(gen_imgs, nrow=4, normalize=True)
         plt.figure(figsize=(8, 8))
         plt.imshow(np.transpose(grid, (1, 2, 0)))
@@ -205,7 +218,7 @@ def train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D, a
 
     # Train Generator
     optimizer_G.zero_grad()
-    z = torch.randn(batch_size, CONFIG['latent_dim'], 1, 1).to(device)
+    z = torch.randn(batch_size, CONFIG['latent_dim']).to(device)
     gen_imgs = generator(z)
     g_loss = adversarial_loss(discriminator(gen_imgs), real)
     g_loss.backward()
@@ -244,6 +257,7 @@ def train():
 
     adversarial_loss = nn.BCELoss()
 
+    save_generated_images(0, generator, device, output_dir)
     for epoch in range(CONFIG['epochs']):
         epoch_d_loss = 0
         epoch_g_loss = 0
