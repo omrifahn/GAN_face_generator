@@ -23,9 +23,9 @@ print(f"Using device: {device}")
 # Hyperparameters
 latent_dim = 64
 image_size = 32
-batch_size = 32
-epochs = 50
-n_samples = 1000
+batch_size = 8
+epochs = 100
+n_samples = 3000
 
 # Data preprocessing
 transform = transforms.Compose([
