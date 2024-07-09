@@ -28,13 +28,16 @@ CONFIG = {
     'output_dir': './output'
 }
 
+
 def set_random_seed(seed):
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
 
+
 def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def create_output_directory():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -45,6 +48,7 @@ def create_output_directory():
     os.makedirs(output_dir, exist_ok=True)
     return output_dir
 
+
 def get_transforms():
     return transforms.Compose([
         transforms.Resize(CONFIG['image_size']),
@@ -52,6 +56,7 @@ def get_transforms():
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ])
+
 
 class CelebADataset(Dataset):
     def __init__(self, root, transform=None, n_samples=None):
@@ -64,24 +69,49 @@ class CelebADataset(Dataset):
                 zip_ref.extractall(root)
 
         all_image_paths = [os.path.join(root, 'img_align_celeba', img) for img in
-                           os.listdir(os.path.join(root, 'img_align_celeba')) if img.endswith('.jpg')]
+                           os.listdir(os.path.join(root, 'img_align_celeba')) if
+                           img.endswith(('.jpg', '.jpeg', '.png'))]
+
+        print(f"Total images found: {len(all_image_paths)}")
 
         if n_samples is not None and n_samples < len(all_image_paths):
             self.image_paths = random.sample(all_image_paths, n_samples)
         else:
             self.image_paths = all_image_paths
 
+        print(f"Images before validation: {len(self.image_paths)}")
+
         self.image_paths = [path for path in self.image_paths if self.is_valid_image(path)]
         print(f"Using {len(self.image_paths)} valid images for training.")
+
+        # Print statistics about image dimensions
+        self.print_image_stats()
 
     def is_valid_image(self, path):
         try:
             with Image.open(path) as img:
                 img.verify()
+                width, height = img.size
+                if width != 256 or height != 256:
+                    print(f"Skipping image with incorrect dimensions: {path} ({width}x{height})")
+                    return False
             return True
-        except:
-            print(f"Skipping corrupted image: {path}")
+        except Exception as e:
+            print(f"Skipping corrupted or invalid image: {path}. Error: {str(e)}")
             return False
+
+    def print_image_stats(self):
+        dimensions = {}
+        for path in self.image_paths:
+            with Image.open(path) as img:
+                size = img.size
+                if size in dimensions:
+                    dimensions[size] += 1
+                else:
+                    dimensions[size] = 1
+        print("Image dimension statistics:")
+        for size, count in dimensions.items():
+            print(f"{size}: {count} images")
 
     def __len__(self):
         return len(self.image_paths)
@@ -96,6 +126,7 @@ class CelebADataset(Dataset):
         except Exception as e:
             print(f"Error loading image {img_path}: {str(e)}")
             return self[random.randint(0, len(self) - 1)]
+
 
 class Generator(nn.Module):
     def __init__(self):
@@ -117,6 +148,7 @@ class Generator(nn.Module):
     def forward(self, input):
         return self.main(input)
 
+
 class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
@@ -136,6 +168,7 @@ class Discriminator(nn.Module):
     def forward(self, input):
         return self.main(input).view(-1, 1)
 
+
 def save_generated_images(epoch, generator, device, output_dir):
     with torch.no_grad():
         gen_imgs = generator(torch.randn(16, CONFIG['latent_dim'], 1, 1).to(device)).cpu()
@@ -145,6 +178,7 @@ def save_generated_images(epoch, generator, device, output_dir):
         plt.axis('off')
         plt.savefig(os.path.join(output_dir, f"celeba_generated_epoch_{epoch}.png"))
         plt.close()
+
 
 def train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D, adversarial_loss, device):
     batch_size = real_imgs.size(0)
@@ -169,6 +203,7 @@ def train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D, a
 
     return d_loss.item(), g_loss.item()
 
+
 def train():
     set_random_seed(CONFIG['random_seed'])
     device = get_device()
@@ -184,8 +219,10 @@ def train():
     generator = Generator().to(device)
     discriminator = Discriminator().to(device)
 
-    optimizer_G = optim.Adam(generator.parameters(), lr=CONFIG['learning_rate'], betas=(CONFIG['beta1'], CONFIG['beta2']))
-    optimizer_D = optim.Adam(discriminator.parameters(), lr=CONFIG['learning_rate'], betas=(CONFIG['beta1'], CONFIG['beta2']))
+    optimizer_G = optim.Adam(generator.parameters(), lr=CONFIG['learning_rate'],
+                             betas=(CONFIG['beta1'], CONFIG['beta2']))
+    optimizer_D = optim.Adam(discriminator.parameters(), lr=CONFIG['learning_rate'],
+                             betas=(CONFIG['beta1'], CONFIG['beta2']))
 
     adversarial_loss = nn.BCELoss()
 
@@ -193,13 +230,16 @@ def train():
         epoch_d_loss = 0
         epoch_g_loss = 0
         for i, imgs in enumerate(dataloader):
+            print(f"Batch {i} size: {imgs.size()}")  # Add this line to print batch size
             real_imgs = imgs.to(device)
-            d_loss, g_loss = train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D, adversarial_loss, device)
+            d_loss, g_loss = train_batch(real_imgs, generator, discriminator, optimizer_G, optimizer_D,
+                                         adversarial_loss, device)
             epoch_d_loss += d_loss
             epoch_g_loss += g_loss
 
             if i % 50 == 0:
-                print(f"Epoch [{epoch + 1}/{CONFIG['epochs']}] Batch [{i}/{len(dataloader)}] D loss: {d_loss:.4f}, G loss: {g_loss:.4f}")
+                print(
+                    f"Epoch [{epoch + 1}/{CONFIG['epochs']}] Batch [{i}/{len(dataloader)}] D loss: {d_loss:.4f}, G loss: {g_loss:.4f}")
 
         avg_d_loss = epoch_d_loss / len(dataloader)
         avg_g_loss = epoch_g_loss / len(dataloader)
@@ -209,7 +249,7 @@ def train():
 
     print(f"Training complete. Generated images saved in {output_dir}")
 
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     train()
-
