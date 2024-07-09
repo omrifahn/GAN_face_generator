@@ -16,18 +16,18 @@ from datetime import datetime
 # Configuration
 CONFIG = {
     'random_seed': 42,
-    'latent_dim': 100,
+    'latent_dim': 128,
     'image_size': 128,
     'batch_size': 64,
-    'epochs': 200,
+    'epochs': 300,
     'n_samples': 3000,
     'learning_rate': 0.0002,
     'beta1': 0.5,
     'beta2': 0.999,
     'data_root': './data/celeba',
     'output_dir': './output',
-    'generator_features': [1024, 512, 256, 128, 64, 32],  # From deep to shallow
-    'discriminator_features': [32, 64, 128, 256, 512, 1024],  # From shallow to deep
+    'generator_features': [1024, 512, 256, 128, 64],  # Adjusted for 128x128 images
+    'discriminator_features': [64, 128, 256, 512, 1024],  # Adjusted for 128x128 images
     'dropout': 0.3,
     'use_spectral_norm': True
 }
